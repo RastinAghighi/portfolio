@@ -1,10 +1,17 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import vertexShader from './shaders/blackhole.vert.glsl'
 import fragmentShader from './shaders/blackhole.frag.glsl'
 
 function App() {
   const mountRef = useRef(null)
+  const skipRef = useRef(false)
+  const [introDone, setIntroDone] = useState(false)
+  const [skipHovered, setSkipHovered] = useState(false)
+
+  const handleSkip = () => {
+    skipRef.current = true
+  }
 
   useEffect(() => {
     const mount = mountRef.current
@@ -39,18 +46,35 @@ function App() {
 
     renderer.getDrawingBufferSize(material.uniforms.u_resolution.value)
 
-    const ANIM_DURATION = 12.0
-    const START_POS = new THREE.Vector3(0, 5, 30)
-    const END_POS = new THREE.Vector3(0, 3, 10)
+    const TOTAL_DURATION = 22.0
+    const POS_INTRO_START = new THREE.Vector3(0, 5, 30)
+    const POS_INTRO_END = new THREE.Vector3(0, 3, 10)
+    const POS_DESCENT_END = new THREE.Vector3(0, 0.5, 5)
     let animStart = performance.now() / 1000
+    let doneFired = false
 
     let frameId = 0
     const tick = () => {
       const now = performance.now() / 1000
-      const elapsed = now - animStart
-      let p = Math.min(elapsed / ANIM_DURATION, 1.0)
-      p = p * p * p * (p * (p * 6 - 15) + 10)
-      material.uniforms.u_camPos.value.lerpVectors(START_POS, END_POS, p)
+      let elapsed = skipRef.current ? TOTAL_DURATION : (now - animStart)
+
+      if (elapsed >= TOTAL_DURATION && !doneFired) {
+        doneFired = true
+        setIntroDone(true)
+      }
+      elapsed = Math.min(elapsed, TOTAL_DURATION)
+
+      const camPos = material.uniforms.u_camPos.value
+      if (elapsed < 12.0) {
+        let p = elapsed / 12.0
+        p = p * p * p * (p * (p * 6 - 15) + 10)
+        camPos.lerpVectors(POS_INTRO_START, POS_INTRO_END, p)
+      } else {
+        let p = (elapsed - 12.0) / 10.0
+        p = p * p * p * (p * (p * 6 - 15) + 10)
+        camPos.lerpVectors(POS_INTRO_END, POS_DESCENT_END, p)
+      }
+
       material.uniforms.u_time.value = now
       renderer.render(scene, camera)
       frameId = requestAnimationFrame(tick)
@@ -77,7 +101,43 @@ function App() {
     }
   }, [])
 
-  return <div ref={mountRef} style={{ width: '100vw', height: '100vh' }} />
+  return (
+    <>
+      <div ref={mountRef} style={{ width: '100vw', height: '100vh' }} />
+      {!introDone && (
+        <button
+          onClick={handleSkip}
+          onMouseEnter={() => setSkipHovered(true)}
+          onMouseLeave={() => setSkipHovered(false)}
+          style={{
+            position: 'fixed',
+            bottom: 24,
+            left: 24,
+            zIndex: 10,
+            padding: '10px 22px',
+            background: skipHovered
+              ? 'rgba(255, 255, 255, 0.15)'
+              : 'rgba(255, 255, 255, 0.08)',
+            border: skipHovered
+              ? '1px solid rgba(255, 255, 255, 0.5)'
+              : '1px solid rgba(255, 255, 255, 0.3)',
+            borderRadius: 4,
+            color: 'rgba(255, 255, 255, 0.85)',
+            fontSize: 13,
+            letterSpacing: '0.15em',
+            textTransform: 'uppercase',
+            fontFamily: 'inherit',
+            cursor: 'pointer',
+            backdropFilter: 'blur(8px)',
+            WebkitBackdropFilter: 'blur(8px)',
+            transition: 'all 200ms ease',
+          }}
+        >
+          Skip →
+        </button>
+      )}
+    </>
+  )
 }
 
 export default App
