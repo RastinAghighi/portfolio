@@ -1,11 +1,13 @@
-// Schwarzschild black hole — Phase 3 v2
-// Disc rotation now via position rotation (not texCoord shift) to avoid
-// floating-point precision drift over long runtime.
+// Schwarzschild black hole — Phase 4
+// Camera position and target now driven by JavaScript via uniforms,
+// so we can animate the approach over time.
 
 precision highp float;
 
 uniform vec2  u_resolution;
 uniform float u_time;
+uniform vec3  u_camPos;       // animated from JS
+uniform vec3  u_camTarget;    // typically (0, 0, 0)
 
 varying vec2 vUv;
 
@@ -79,7 +81,6 @@ vec3 sampleDisc(vec3 crossing) {
 
   float t = (r - discInner) / (discOuter - discInner);
 
-  // Blackbody-inspired temperature gradient
   vec3 hotColor  = vec3(1.3, 1.0,  0.75);
   vec3 midColor  = vec3(1.0, 0.55, 0.18);
   vec3 coldColor = vec3(0.5, 0.15, 0.05);
@@ -91,14 +92,11 @@ vec3 sampleDisc(vec3 crossing) {
     color = mix(midColor, coldColor, (t - 0.25) / 0.75);
   }
 
-  // Rotate position by omega(t) — keeps texture coords bounded forever.
-  // Inner orbits faster than outer (Keplerian-style differential rotation).
   float omega = u_time * 0.15 * (1.5 - t);
   float c     = cos(omega);
   float s     = sin(omega);
   vec2  rotXZ = vec2(c * xz.x - s * xz.y, s * xz.x + c * xz.y);
 
-  // Sample FBM in rotated 2D space — naturally seamless, no precision drift
   float n = fbm(rotXZ * 0.6);
   float density = smoothstep(0.35, 0.85, n);
 
@@ -108,12 +106,13 @@ vec3 sampleDisc(vec3 crossing) {
   return color * density * innerFade * outerFade * 1.8;
 }
 
-// ---------- Schwarzschild raymarcher with camera look-at ----------
+// ---------- Schwarzschild raymarcher ----------
 void main() {
   vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution) / u_resolution.y;
 
-  vec3 camPos    = vec3(0.0, 3.0, 10.0);
-  vec3 camTarget = vec3(0.0, 0.0, 0.0);
+  // Camera now comes from uniforms (animated by JavaScript)
+  vec3 camPos    = u_camPos;
+  vec3 camTarget = u_camTarget;
   vec3 worldUp   = vec3(0.0, 1.0, 0.0);
 
   vec3 camForward = normalize(camTarget - camPos);
@@ -126,7 +125,7 @@ void main() {
   vec3 dir = rayDir;
 
   const float schwarzschildRadius = 1.0;
-  const float maxDistance         = 50.0;
+  const float maxDistance         = 60.0;
   const int   maxSteps            = 250;
 
   bool hitHorizon = false;
@@ -150,7 +149,6 @@ void main() {
     dir = normalize(dir + toCenter * bendStrength * stepSize);
     pos += dir * stepSize;
 
-    // Filter grazing crossings — only count meaningful disc transitions
     if (prevPos.y * pos.y < 0.0 && abs(dir.y) > 0.03) {
       float tCross = -prevPos.y / (pos.y - prevPos.y);
       vec3  crossing = mix(prevPos, pos, tCross);

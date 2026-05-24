@@ -30,14 +30,26 @@ function App() {
       uniforms: {
         u_resolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
         u_time: { value: 0 },
+        u_camPos: { value: new THREE.Vector3(0, 5, 30) },
+        u_camTarget: { value: new THREE.Vector3(0, 0, 0) },
       },
     })
     const quad = new THREE.Mesh(geometry, material)
     scene.add(quad)
 
+    const ANIM_DURATION = 12.0
+    const START_POS = new THREE.Vector3(0, 5, 30)
+    const END_POS = new THREE.Vector3(0, 3, 10)
+    let animStart = performance.now() / 1000
+
     let frameId = 0
     const tick = () => {
-      material.uniforms.u_time.value = performance.now() / 1000
+      const now = performance.now() / 1000
+      const elapsed = now - animStart
+      let p = Math.min(elapsed / ANIM_DURATION, 1.0)
+      p = p * p * p * (p * (p * 6 - 15) + 10)
+      material.uniforms.u_camPos.value.lerpVectors(START_POS, END_POS, p)
+      material.uniforms.u_time.value = now
       renderer.render(scene, camera)
       frameId = requestAnimationFrame(tick)
     }
