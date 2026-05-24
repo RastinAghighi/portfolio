@@ -1,13 +1,13 @@
-// Schwarzschild black hole — Phase 4
-// Camera position and target now driven by JavaScript via uniforms,
-// so we can animate the approach over time.
+// Schwarzschild black hole — Phase 4 v2
+// Disc rotation is now UNIFORM (whole disc spins as one piece), eliminating
+// the differential-shear ring artifacts that appeared over time.
 
 precision highp float;
 
 uniform vec2  u_resolution;
 uniform float u_time;
-uniform vec3  u_camPos;       // animated from JS
-uniform vec3  u_camTarget;    // typically (0, 0, 0)
+uniform vec3  u_camPos;
+uniform vec3  u_camTarget;
 
 varying vec2 vUv;
 
@@ -92,12 +92,18 @@ vec3 sampleDisc(vec3 crossing) {
     color = mix(midColor, coldColor, (t - 0.25) / 0.75);
   }
 
-  float omega = u_time * 0.15 * (1.5 - t);
+  // Uniform slow rotation — whole disc rotates as one. No differential shear,
+  // so the texture stays clumpy/dust-like indefinitely instead of smearing
+  // into concentric rings.
+  float omega = u_time * 0.04;
   float c     = cos(omega);
   float s     = sin(omega);
   vec2  rotXZ = vec2(c * xz.x - s * xz.y, s * xz.x + c * xz.y);
 
-  float n = fbm(rotXZ * 0.6);
+  // Layered noise — large clumps + finer dust grain for a more textured look
+  float largeScale = fbm(rotXZ * 0.55);
+  float fineScale  = fbm(rotXZ * 2.2);
+  float n = largeScale * 0.7 + fineScale * 0.3;
   float density = smoothstep(0.35, 0.85, n);
 
   float innerFade = smoothstep(0.0, 0.1, t);
@@ -110,7 +116,6 @@ vec3 sampleDisc(vec3 crossing) {
 void main() {
   vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution) / u_resolution.y;
 
-  // Camera now comes from uniforms (animated by JavaScript)
   vec3 camPos    = u_camPos;
   vec3 camTarget = u_camTarget;
   vec3 worldUp   = vec3(0.0, 1.0, 0.0);

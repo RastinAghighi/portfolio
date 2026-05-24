@@ -28,7 +28,7 @@ function App() {
       vertexShader,
       fragmentShader,
       uniforms: {
-        u_resolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
+        u_resolution: { value: new THREE.Vector2() },
         u_time: { value: 0 },
         u_camPos: { value: new THREE.Vector3(0, 5, 30) },
         u_camTarget: { value: new THREE.Vector3(0, 0, 0) },
@@ -36,6 +36,8 @@ function App() {
     })
     const quad = new THREE.Mesh(geometry, material)
     scene.add(quad)
+
+    renderer.getDrawingBufferSize(material.uniforms.u_resolution.value)
 
     const ANIM_DURATION = 12.0
     const START_POS = new THREE.Vector3(0, 5, 30)
@@ -59,7 +61,7 @@ function App() {
       const w = mount.clientWidth
       const h = mount.clientHeight
       renderer.setSize(w, h)
-      material.uniforms.u_resolution.value.set(w, h)
+      renderer.getDrawingBufferSize(material.uniforms.u_resolution.value)
     }
     window.addEventListener('resize', handleResize)
 
