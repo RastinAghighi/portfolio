@@ -1,5 +1,7 @@
 import { useEffect, useRef } from 'react'
 import * as THREE from 'three'
+import vertexShader from './shaders/blackhole.vert.glsl'
+import fragmentShader from './shaders/blackhole.frag.glsl'
 
 function App() {
   const mountRef = useRef(null)
@@ -13,30 +15,29 @@ function App() {
 
     const scene = new THREE.Scene()
 
-    const camera = new THREE.PerspectiveCamera(60, width / height, 0.1, 100)
-    camera.position.set(0, 0, 4)
+    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1)
 
     const renderer = new THREE.WebGLRenderer({ antialias: true })
-    renderer.setPixelRatio(window.devicePixelRatio)
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     renderer.setSize(width, height)
+    renderer.setClearColor(0x000000, 1)
     mount.appendChild(renderer.domElement)
 
-    const ambient = new THREE.AmbientLight(0xffffff, 0.25)
-    scene.add(ambient)
-
-    const directional = new THREE.DirectionalLight(0xffffff, 1.0)
-    directional.position.set(3, 4, 5)
-    scene.add(directional)
-
-    const geometry = new THREE.BoxGeometry(1, 1, 1)
-    const material = new THREE.MeshStandardMaterial({ color: 0x6b4ed4 })
-    const cube = new THREE.Mesh(geometry, material)
-    scene.add(cube)
+    const geometry = new THREE.PlaneGeometry(2, 2)
+    const material = new THREE.ShaderMaterial({
+      vertexShader,
+      fragmentShader,
+      uniforms: {
+        u_resolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
+        u_time: { value: 0 },
+      },
+    })
+    const quad = new THREE.Mesh(geometry, material)
+    scene.add(quad)
 
     let frameId = 0
     const tick = () => {
-      cube.rotation.x += 0.01
-      cube.rotation.y += 0.012
+      material.uniforms.u_time.value = performance.now() / 1000
       renderer.render(scene, camera)
       frameId = requestAnimationFrame(tick)
     }
@@ -45,9 +46,8 @@ function App() {
     const handleResize = () => {
       const w = mount.clientWidth
       const h = mount.clientHeight
-      camera.aspect = w / h
-      camera.updateProjectionMatrix()
       renderer.setSize(w, h)
+      material.uniforms.u_resolution.value.set(w, h)
     }
     window.addEventListener('resize', handleResize)
 
