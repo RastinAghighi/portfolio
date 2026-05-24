@@ -1,6 +1,6 @@
-// Schwarzschild black hole — Phase 3
-// Adds an accretion disc with FBM texture, temperature gradient,
-// and a proper camera look-at for a dramatic angle.
+// Schwarzschild black hole — Phase 3 v2
+// Disc rotation now via position rotation (not texCoord shift) to avoid
+// floating-point precision drift over long runtime.
 
 precision highp float;
 
@@ -68,7 +68,6 @@ vec3 skybox(vec3 dir) {
 }
 
 // ---------- Accretion disc ----------
-// Inner edge near the photon sphere; outer edge several r_s out.
 const float discInner = 1.6;
 const float discOuter = 6.5;
 
@@ -78,13 +77,12 @@ vec3 sampleDisc(vec3 crossing) {
 
   if (r < discInner || r > discOuter) return vec3(0.0);
 
-  float t     = (r - discInner) / (discOuter - discInner);
-  float angle = atan(xz.y, xz.x);
+  float t = (r - discInner) / (discOuter - discInner);
 
   // Blackbody-inspired temperature gradient
-  vec3 hotColor  = vec3(1.3, 1.0,  0.75);    // hot inner edge
-  vec3 midColor  = vec3(1.0, 0.55, 0.18);    // orange band
-  vec3 coldColor = vec3(0.5, 0.15, 0.05);    // dim red outer
+  vec3 hotColor  = vec3(1.3, 1.0,  0.75);
+  vec3 midColor  = vec3(1.0, 0.55, 0.18);
+  vec3 coldColor = vec3(0.5, 0.15, 0.05);
 
   vec3 color;
   if (t < 0.25) {
@@ -93,13 +91,17 @@ vec3 sampleDisc(vec3 crossing) {
     color = mix(midColor, coldColor, (t - 0.25) / 0.75);
   }
 
-  // Swirling clumpy texture, inner rotates faster (Keplerian-like)
-  vec2 texCoord = vec2(angle * 3.0, r * 1.5);
-  texCoord.x += u_time * 0.15 * (1.5 - t);
-  float n = fbm(texCoord);
+  // Rotate position by omega(t) — keeps texture coords bounded forever.
+  // Inner orbits faster than outer (Keplerian-style differential rotation).
+  float omega = u_time * 0.15 * (1.5 - t);
+  float c     = cos(omega);
+  float s     = sin(omega);
+  vec2  rotXZ = vec2(c * xz.x - s * xz.y, s * xz.x + c * xz.y);
+
+  // Sample FBM in rotated 2D space — naturally seamless, no precision drift
+  float n = fbm(rotXZ * 0.6);
   float density = smoothstep(0.35, 0.85, n);
 
-  // Soft fade at inner and outer edges
   float innerFade = smoothstep(0.0, 0.1, t);
   float outerFade = smoothstep(1.0, 0.65, t);
 
@@ -110,7 +112,6 @@ vec3 sampleDisc(vec3 crossing) {
 void main() {
   vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution) / u_resolution.y;
 
-  // Camera positioned above the disc, looking at the BH
   vec3 camPos    = vec3(0.0, 3.0, 10.0);
   vec3 camTarget = vec3(0.0, 0.0, 0.0);
   vec3 worldUp   = vec3(0.0, 1.0, 0.0);
@@ -149,8 +150,8 @@ void main() {
     dir = normalize(dir + toCenter * bendStrength * stepSize);
     pos += dir * stepSize;
 
-    // Disc crossing detection: did the ray pass through y=0?
-    if (prevPos.y * pos.y < 0.0) {
+    // Filter grazing crossings — only count meaningful disc transitions
+    if (prevPos.y * pos.y < 0.0 && abs(dir.y) > 0.03) {
       float tCross = -prevPos.y / (pos.y - prevPos.y);
       vec3  crossing = mix(prevPos, pos, tCross);
       discColor += sampleDisc(crossing);
