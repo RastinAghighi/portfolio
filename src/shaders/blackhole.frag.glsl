@@ -1,6 +1,7 @@
-// Schwarzschild black hole — Phase 4 v2
-// Disc rotation is now UNIFORM (whole disc spins as one piece), eliminating
-// the differential-shear ring artifacts that appeared over time.
+// Schwarzschild black hole — Phase 7c (polish iteration 1)
+// Adds Doppler beaming, domain-warped filament noise, and higher contrast
+// for the Gargantua-quality look. Designed to be rendered through bloom
+// post-processing — outputs HDR values >1 in the brightest disc regions.
 
 precision highp float;
 
@@ -32,7 +33,7 @@ float noise(vec2 p) {
 float fbm(vec2 p) {
   float v = 0.0;
   float a = 0.5;
-  for (int i = 0; i < 5; i++) {
+  for (int i = 0; i < 6; i++) {                     // 6 octaves now (was 5)
     v += a * noise(p);
     p *= 2.0;
     a *= 0.5;
@@ -65,7 +66,7 @@ vec3 skybox(vec3 dir) {
       }
     }
   }
-  vec3 starColor = vec3(0.9, 0.95, 1.0) * star;
+  vec3 starColor = vec3(0.9, 0.95, 1.0) * star * 1.4;
   return bgColor + starColor;
 }
 
@@ -81,9 +82,10 @@ vec3 sampleDisc(vec3 crossing) {
 
   float t = (r - discInner) / (discOuter - discInner);
 
-  vec3 hotColor  = vec3(1.3, 1.0,  0.75);
-  vec3 midColor  = vec3(1.0, 0.55, 0.18);
-  vec3 coldColor = vec3(0.5, 0.15, 0.05);
+  // Temperature gradient — pushed slightly hotter at inner edge for HDR bloom
+  vec3 hotColor  = vec3(1.6, 1.3,  0.95);
+  vec3 midColor  = vec3(1.2, 0.55, 0.18);
+  vec3 coldColor = vec3(0.45, 0.12, 0.04);
 
   vec3 color;
   if (t < 0.25) {
@@ -92,24 +94,53 @@ vec3 sampleDisc(vec3 crossing) {
     color = mix(midColor, coldColor, (t - 0.25) / 0.75);
   }
 
-  // Uniform slow rotation — whole disc rotates as one. No differential shear,
-  // so the texture stays clumpy/dust-like indefinitely instead of smearing
-  // into concentric rings.
+  // Uniform slow rotation
   float omega = u_time * 0.04;
-  float c     = cos(omega);
-  float s     = sin(omega);
-  vec2  rotXZ = vec2(c * xz.x - s * xz.y, s * xz.x + c * xz.y);
+  float cR    = cos(omega);
+  float sR    = sin(omega);
+  vec2  rotXZ = vec2(cR * xz.x - sR * xz.y, sR * xz.x + cR * xz.y);
 
-  // Layered noise — large clumps + finer dust grain for a more textured look
-  float largeScale = fbm(rotXZ * 0.55);
-  float fineScale  = fbm(rotXZ * 2.2);
-  float n = largeScale * 0.7 + fineScale * 0.3;
-  float density = smoothstep(0.35, 0.85, n);
+  // ---- Domain-warped multi-scale noise for filament structure ----
+  // Use one noise field to perturb the sampling positions of another.
+  // This is what produces the swirly filament look instead of cloudy blobs.
+  vec2 q = vec2(
+    fbm(rotXZ * 0.5),
+    fbm(rotXZ * 0.5 + vec2(5.2, 1.3))
+  );
+  vec2 warped = rotXZ + 2.4 * q;
 
+  float largeScale = fbm(warped * 0.7);
+  float midScale   = fbm(warped * 2.0);
+  float fineScale  = fbm(warped * 5.5);
+
+  float n = largeScale * 0.55 + midScale * 0.30 + fineScale * 0.15;
+
+  // Sharper threshold for higher-contrast filaments (was 0.35..0.85)
+  float density = smoothstep(0.42, 0.72, n);
+
+  // ---- Doppler beaming ----
+  // Material orbits in xz plane. At a disc point (x, 0, z), the orbital
+  // direction (counterclockwise viewed from +y) is (-z, 0, x) / r.
+  // Orbital speed approximates Keplerian: sqrt(GM/r) with GM = 0.5 in our units.
+  // The relativistic beaming makes the side moving toward the camera much
+  // brighter — the iconic asymmetric Gargantua look.
+  vec3 discPoint3D = vec3(xz.x, 0.0, xz.y);
+  vec3 orbitalDir  = normalize(vec3(-xz.y, 0.0, xz.x));
+  float orbitalSpeed = sqrt(0.5 / max(r, 0.5));
+  vec3 velocity = orbitalDir * orbitalSpeed;
+
+  vec3 toCam = normalize(u_camPos - discPoint3D);
+  float vDotN = dot(velocity, toCam);
+
+  float doppler = 1.0 / max(0.35, 1.0 - vDotN);
+  float beaming = pow(doppler, 2.6);                  // tunable strength
+  beaming = clamp(beaming, 0.3, 6.0);
+
+  // Edge fades
   float innerFade = smoothstep(0.0, 0.1, t);
   float outerFade = smoothstep(1.0, 0.65, t);
 
-  return color * density * innerFade * outerFade * 1.8;
+  return color * density * beaming * innerFade * outerFade * 1.4;
 }
 
 // ---------- Schwarzschild raymarcher ----------
@@ -131,7 +162,7 @@ void main() {
 
   const float schwarzschildRadius = 1.0;
   const float maxDistance         = 60.0;
-  const int   maxSteps            = 250;
+  const int   maxSteps            = 300;              // more steps for photon-ring accuracy
 
   bool hitHorizon = false;
   vec3 discColor  = vec3(0.0);
@@ -145,7 +176,8 @@ void main() {
     }
     if (r > maxDistance) break;
 
-    float stepSize = max(0.06, r * 0.08);
+    // Smaller steps near the BH for sharper lensing and clearer photon ring
+    float stepSize = max(0.04, r * 0.07);
 
     vec3 prevPos = pos;
 
@@ -162,5 +194,8 @@ void main() {
   }
 
   vec3 color = hitHorizon ? discColor : skybox(dir) + discColor;
+
+  // Output HDR — let the bloom + tone mapping in post-processing handle the rest.
+  // Do NOT clamp here; bright pixels feeding the bloom pass is the whole point.
   gl_FragColor = vec4(color, 1.0);
 }
