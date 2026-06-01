@@ -37,7 +37,12 @@ USE_GPU         = True     # set False to force CPU
 
 
 def reset_scene():
-    bpy.ops.wm.read_factory_settings(use_empty=True)
+    # Clear all objects via the data API instead of reloading the file.
+    # (read_factory_settings reloads Blender mid-script, which wipes the
+    #  live context in the GUI and breaks active_object. This is GUI-safe
+    #  and behaves the same in background mode.)
+    for obj in list(bpy.data.objects):
+        bpy.data.objects.remove(obj, do_unlink=True)
 
 
 def new_node_material(name):
