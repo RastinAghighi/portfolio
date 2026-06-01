@@ -1,7 +1,7 @@
-// Dust cloud scene — Phase 7a
-// Camera flies through a dense field of debris/dust particles in space.
-// Neutral warm tones (cream / dim brown), dense parallax, volumetric haze.
-// Visually distinct from the cooler latent space scene that follows.
+// Dust cloud scene — polish iteration
+// Dense field of fine white-silver dust grains with occasional hot orange
+// sparks mixed in (~5%). HDR amplitudes so bloom + tone mapping land it
+// in cinematic territory.
 
 precision highp float;
 
@@ -12,20 +12,19 @@ uniform vec3  u_camTarget;
 
 varying vec2 vUv;
 
-// ---------- 3D hash functions ----------
-float hash13(vec3 p) {
-  p = fract(p * 0.1031);
-  p += dot(p, p.yzx + 33.33);
-  return fract((p.x + p.y) * p.z);
-}
-
+// ---------- 3D hash ----------
 vec3 hash33(vec3 p) {
   p = fract(p * vec3(0.1031, 0.1030, 0.0973));
   p += dot(p, p.yxz + 33.33);
   return fract((p.xxy + p.yxx) * p.zyx);
 }
 
-// ---------- 3D smooth noise ----------
+float hash13(vec3 p) {
+  p = fract(p * 0.1031);
+  p += dot(p, p.yzx + 33.33);
+  return fract((p.x + p.y) * p.z);
+}
+
 float noise3d(vec3 p) {
   vec3 i = floor(p);
   vec3 f = fract(p);
@@ -45,10 +44,9 @@ float noise3d(vec3 p) {
   );
 }
 
-// ---------- Dust particle field ----------
-// Dense (~55% of cells active), neutral warm colors, smaller particle size
-// than the latent space embeddings.
-vec3 sampleDust(vec3 pos) {
+// ---------- Dust grain field ----------
+// Most particles white-silver, ~5% are hot orange sparks.
+vec3 sampleDustField(vec3 pos) {
   vec3 cell  = floor(pos);
   vec3 fcell = pos - cell;
   vec3 result = vec3(0.0);
@@ -59,24 +57,22 @@ vec3 sampleDust(vec3 pos) {
         vec3 nCell = cell + vec3(float(dx), float(dy), float(dz));
         vec3 h = hash33(nCell);
 
-        if (h.x > 0.45) {                              // dense ~55%
+        if (h.x > 0.25) {                              // dense ~75%
           vec3 pInCell = vec3(float(dx), float(dy), float(dz)) + 0.05 + 0.9 * h;
           float d = length(fcell - pInCell);
+          float bright = (h.x - 0.25) / 0.75;          // 0..1
 
-          // Neutral warm palette — cream to dim brown
-          vec3 col = mix(
-            vec3(0.85, 0.80, 0.72),
-            vec3(0.55, 0.45, 0.38),
-            h.y
-          );
+          // Sharp small core + soft halo (bloom does the rest)
+          float core = smoothstep(0.045, 0.0, d) * 9.0;
+          float halo = smoothstep(0.17,  0.0, d) * 0.35;
 
-          float brightness = (h.x - 0.45) / 0.55;      // 0..1
+          // ~5% of particles are hot orange sparks; the rest are dust
+          vec3 dustColor  = vec3(1.0, 0.95, 0.88);
+          vec3 sparkColor = vec3(2.8, 1.3,  0.35);     // HDR — blooms heavily
+          float isSpark = step(0.95, h.y);
+          vec3 particleColor = mix(dustColor, sparkColor, isSpark);
 
-          // Small sharp grains
-          float core = smoothstep(0.025, 0.0, d) * 5.0;
-          float halo = smoothstep(0.14, 0.0, d) * 0.35;
-
-          result += col * (core + halo) * brightness;
+          result += particleColor * (core + halo) * bright;
         }
       }
     }
@@ -92,24 +88,23 @@ void main() {
   vec3 camUp      = cross(camRight, camForward);
   vec3 rayDir     = normalize(uv.x * camRight + uv.y * camUp + 1.5 * camForward);
 
-  // Dim ambient with warm tint
-  vec3 color = vec3(0.025, 0.022, 0.018);
+  // Near-black ambient — dust must read against pure dark
+  vec3 color = vec3(0.004, 0.004, 0.006);
 
-  // Volumetric haze — denser than latent for cloud feel
-  float haze = noise3d(u_camPos * 0.08 + rayDir * 0.4 + vec3(u_time * 0.05));
-  color += vec3(0.07, 0.06, 0.045) * haze;
+  // Subtle volumetric tint, very faint
+  float haze = noise3d(u_camPos * 0.08 + rayDir * 0.3 + vec3(u_time * 0.03));
+  color += vec3(0.025, 0.020, 0.018) * haze;
 
-  // Raymarch the dust field
+  // Raymarch the dust
   vec3 pos = u_camPos;
-  const int   steps    = 30;
+  const int   steps    = 28;
   const float stepSize = 0.5;
 
   for (int i = 0; i < steps; i++) {
-    float distAtten = 1.0 / (1.0 + 0.04 * float(i));
-    color += sampleDust(pos) * stepSize * 0.10 * distAtten;
+    float distAtten = 1.0 / (1.0 + 0.03 * float(i));
+    color += sampleDustField(pos) * stepSize * 0.075 * distAtten;
     pos += rayDir * stepSize;
   }
 
-  color = color / (1.0 + color * 0.5);
   gl_FragColor = vec4(color, 1.0);
 }
